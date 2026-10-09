@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QLineEdit>
 #include <QListView>
+#include <QLocale>
 #include <QMdiArea>
 #include <QMdiSubWindow>
 #include <QTemporaryDir>
@@ -23,6 +24,7 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QStatusBar>
+#include <QScopeGuard>
 #include <QLabel>
 #include <QTreeView>
 #include <QtTest>
@@ -226,7 +228,16 @@ private slots:
         icons->selectionModel()->select(icons->model()->index(0, 0, icons->rootIndex()), QItemSelectionModel::ClearAndSelect);
         QCOMPARE(pane->selectedPaths().size(), 1);
     }
+    void perPaneStatusAndSafeTextCommands_data() {
+        QTest::addColumn<QString>("localeName");
+        QTest::newRow("japanese") << QString("ja_JP");
+        QTest::newRow("english") << QString("en_US");
+    }
     void perPaneStatusAndSafeTextCommands() {
+        QFETCH(QString, localeName);
+        const QLocale previousLocale;
+        const auto restoreLocale = qScopeGuard([previousLocale] { QLocale::setDefault(previousLocale); });
+        QLocale::setDefault(QLocale(localeName));
         MainWindow window(makeProject({fixture_.path(), fixture_.filePath("業務サンプル")}), {}, false);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
@@ -240,7 +251,8 @@ private slots:
         pane->selectPaths({fixture_.filePath("item2.txt")});
         details->setFocus();
         QTRY_VERIFY(summary->text().contains("1 件選択"));
-        QVERIFY(summary->text().contains("bytes") || summary->text().contains("B"));
+        const auto selectedSize = QFileInfo(fixture_.filePath("item2.txt")).size();
+        QTRY_VERIFY(summary->text().endsWith(QLocale().formattedDataSize(selectedSize)));
         auto *other = qobject_cast<FolderPane *>(children.last()->widget());
         QTRY_VERIFY(other->findChild<QLabel *>("paneSummary")->text().contains("2 項目"));
         QVERIFY(other->findChild<QLabel *>("paneSummary")->text().contains("0 件選択"));

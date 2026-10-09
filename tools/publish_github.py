@@ -27,7 +27,7 @@ def run(*args, check=True, visible=False):
                             stdout=None if visible else subprocess.PIPE,
                             stderr=None if visible else subprocess.PIPE)
     if check and result.returncode:
-        raise RuntimeError(f"{args[0]} の処理に失敗しました。認証・接続・直前の検査結果を確認してください。")
+        raise RuntimeError(f"{Path(args[0]).name} が終了コード {result.returncode} で失敗しました。直前の出力を確認してください。")
     return result
 
 
