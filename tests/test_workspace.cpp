@@ -410,6 +410,46 @@ private slots:
         QVERIFY(!readFileTransfer(&unknown).error.isEmpty());
         QApplication::clipboard()->clear();
     }
+    void treeEnterOpensAndExpandsFolder() {
+        MainWindow window(makeProject({fixture_.path(), fixture_.path()}), {}, false);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const auto children = window.mdiArea()->subWindowList();
+        window.mdiArea()->setActiveSubWindow(children.first());
+        auto *pane = window.activePane();
+        auto *other = qobject_cast<FolderPane *>(children.last()->widget());
+        auto *tree = pane->findChild<QTreeView *>("folderTree");
+        auto *details = pane->findChild<QTreeView *>("details");
+        auto *treeProxy = static_cast<DirectoryProxy *>(tree->model());
+        auto *listProxy = static_cast<DirectoryProxy *>(details->model());
+        auto *model = static_cast<QFileSystemModel *>(treeProxy->sourceModel());
+        const QString target = fixture_.filePath("業務サンプル");
+        auto index = [&] { return treeProxy->mapFromSource(model->index(target)); };
+        QTRY_VERIFY(index().isValid());
+        QTRY_COMPARE(details->model()->rowCount(details->rootIndex()), 6);
+        for (const auto key : {Qt::Key_Return, Qt::Key_Enter}) {
+            pane->navigate(fixture_.path());
+            tree->setFocus();
+            QTRY_VERIFY(tree->hasFocus());
+            tree->collapse(index());
+            tree->setCurrentIndex(index());
+            QCOMPARE(pane->path(), fixture_.path());
+            QVERIFY(!tree->isExpanded(index()));
+            const auto modifiers = key == Qt::Key_Enter ? Qt::KeypadModifier : Qt::NoModifier;
+            QTest::keyClick(tree, key, modifiers);
+            QTRY_COMPARE(pane->path(), target);
+            QCOMPARE(model->filePath(listProxy->mapToSource(details->rootIndex())), target);
+            QTRY_COMPARE(details->model()->rowCount(details->rootIndex()), 2);
+            QVERIFY(tree->isExpanded(index()));
+            QVERIFY(tree->hasFocus());
+            QCOMPARE(other->path(), fixture_.path());
+            QTest::keyClick(tree, key, modifiers);
+            QVERIFY(tree->isExpanded(index()));
+            QCOMPARE(pane->path(), target);
+            pane->back();
+            QCOMPARE(pane->path(), fixture_.path());
+        }
+    }
     void treeTargetsAndOpenFolderRename() {
         QTemporaryDir tmp;
         QVERIFY(QDir(tmp.path()).mkpath("folder/sub"));

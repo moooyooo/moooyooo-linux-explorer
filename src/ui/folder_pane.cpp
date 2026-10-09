@@ -504,6 +504,16 @@ bool FolderPane::eventFilter(QObject *object, QEvent *event) {
     }
     if (event->type() == QEvent::KeyPress) {
         const auto *key = static_cast<QKeyEvent *>(event);
+        if ((object == tree_ || object == tree_->viewport()) &&
+            (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) &&
+            (key->modifiers() == Qt::NoModifier || key->modifiers() == Qt::KeypadModifier)) {
+            const auto index = tree_->currentIndex();
+            if (index.isValid() && tree_->selectionModel()->isSelected(index)) {
+                navigate(model_->filePath(treeProxy_->mapToSource(index)));
+                tree_->expand(tree_->currentIndex());
+            }
+            return true;
+        }
         if (key->key() == Qt::Key_Menu || (key->key() == Qt::Key_F10 && key->modifiers() == Qt::ShiftModifier)) {
             auto *view = treeFocused_ ? static_cast<QAbstractItemView *>(tree_) : icons() ? static_cast<QAbstractItemView *>(icons_) : details_;
             const auto rect = view->visualRect(view->currentIndex());
