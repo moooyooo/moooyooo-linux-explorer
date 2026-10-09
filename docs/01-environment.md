@@ -33,15 +33,16 @@ Qt自体の必須言語水準はC++17ですが、本アプリではC++20を選�
 
 最初の検証対象はUbuntu 26.04 LTS / x86_64です。Waylandを主対象、X11も受け入れ対象とします。GNOME / KDEでフォーカス、IME、クリップボード、ごみ箱、既定アプリを検証します。他ディストリビューションとARM64は、ビルド・操作確認が済むまで対応済みと表記しません。Windows / macOSの製品対応は初版の範囲外です。
 
-ディストリビューションのパッケージ情報で候補バージョンが上の基準を満たすことを確認し、開発ホストで次の種類のパッケージを導入します。システムへの導入は今回実施していません。
+ディストリビューションのパッケージで上の基準を満たす開発環境を導入します。2026-10-09に利用者が通常のターミナルで導入スクリプトを実行し、その後に各ツールの存在とバージョンを確認しました。エージェント環境内のsudoは権限昇格禁止により実行できませんでした。
 
 ```sh
-sudo apt install build-essential cmake ninja-build pkg-config qt6-base-dev qt6-base-dev-tools qt6-wayland libglib2.0-dev
+sh tools/install_deps.sh
+python3 tools/doctor.py
 ```
 
-Qtが基準未満の場合は、適合する開発イメージか公式Qt SDKを選び、手元のシステムQtを上書きしません。IDEは任意です。現在のリポジトリにはアプリ本体とCMakeLists.txtはなく、ビルドはM1で整備します。
+導入対象はbuild-essential、cmake、ninja-build、pkg-config、qt6-base-dev、qt6-base-dev-tools、qt6-wayland、libglib2.0-dev、xvfbです。GIOは後続のファイル操作用で、閲覧版のリンク依存には含めません。Qtが基準未満の場合は適合する開発イメージか公式Qt SDKを選び、手元のシステムQtを上書きしません。IDEは任意です。
 
-実装開始時はCMake Presetsに `dev` / `release` / `asan` を定義します。開発ビルドは警告を有効にし、依存ライブラリの警告へ一律の `-Werror` は適用しません。依存取得をCMake構成時に自動実行せず、OSパッケージと明示したSDKを用います。リリースは動的リンクを基本とし、まず通常のLinuxパッケージ、後からAppImage等を評価します。Flatpakはアクセス権と業務フォルダ操作の整合を確認してから扱います。
+CMake Presetsに `dev` / `release` / `asan` を定義しています。生成先はソースの隣の `.build/moooyooo-linux-explorer/<preset>/` です。開発ビルドは警告を有効にし、依存ライブラリの警告へ一律の `-Werror` は適用しません。依存取得をCMake構成時に自動実行せず、OSパッケージと明示したSDKを用います。リリースは動的リンクを基本とし、まず通常のLinuxパッケージ、後からAppImage等を評価します。Flatpakはアクセス権と業務フォルダ操作の整合を確認してから扱います。
 
 ## 拡張性と配布条件
 
@@ -51,4 +52,4 @@ Qtはライセンスがモジュールごとに異なります。採用するCor
 
 ## この作業環境の現状
 
-調査時はPython 3.14.4とGit 2.53.0を利用可能でした。C++コンパイラ、CMake、Ninja、pkg-config、Qtの開発ツールは見つかりませんでした。今回は環境の選定と仕様・検査基盤を確定する工程であり、C++ビルドやGUI起動は未検証です。
+導入後の確認値はGCC 15.2.0、CMake 4.2.3、Ninja 1.13.2、Qt Widgets / Test 6.10.2、GIO 2.88.0、Python 3.14.4です。C++ビルドとoffscreenでのGUI操作は検証対象になりました。デスクトップ接続はエージェント環境で拒否されるため、Wayland／X11での表示・操作は利用者の通常セッションで別途確認します。詳細は[実装の検証記録](10-implementation-validation.md)を参照してください。

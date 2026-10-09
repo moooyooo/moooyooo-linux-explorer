@@ -21,6 +21,8 @@ flowchart LR
 
 ## モジュールの責務
 
+以下は製品全体の設計です。閲覧版では `mlex_core`（domain / persistence / platform）と `mlex_ui`（MainWindow / FolderPane / CommandRegistry）を実装しています。保存検証はWidgetsに依存しません。WorkspaceController相当の画面調停は現段階ではMainWindowに置き、更新ジョブを追加するM3でapplication層へ分離します。OperationServiceとワーカーはまだ存在しません。
+
 | モジュール | 主な型・責務 | 依存の制約 |
 |---|---|---|
 | domain | Project、PaneState、Location、OperationPlan、JobResult | Widgetsに依存しない |
@@ -53,7 +55,7 @@ DirectoryProvider、OperationBackend、PreviewProviderを内部インターフ�
 
 プラグインを導入するときは、互換性・配布・権限・失敗時の分離を別の設計で確定します。プロジェクトファイルに実行コマンドや読み込むライブラリを記述できる構成にはしません。
 
-## 実装開始時のディレクトリ案
+## 拡張後のディレクトリ案
 
 ```text
 src/domain/           状態・操作計画
@@ -68,4 +70,4 @@ tests/integration/    架空ツリーを使うファイル操作
 tests/gui/            キー・MDI・フォーカス
 ```
 
-これはM1以降の構成案です。空の実装や動かないビルド対象は初回コミットに作りません。
+これは拡張後の構成案です。現在は `src/domain/`、`src/ui/`、`src/platform/`、`src/persistence/` と `tests/test_project.cpp`、`tests/test_workspace.cpp`、`tests/check_cli.py` を使用します。モデルは親で共有し、F5ではモデルを再生成して全子へ接続し直します。子ごとの履歴・検索・表示設定と、パスによる選択を引き継ぎます。低速マウントでのモデル破棄・再生成の応答性は今後の評価対象です。
