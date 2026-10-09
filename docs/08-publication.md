@@ -51,6 +51,24 @@ Gitフックはクローンしただけでは有効になりません。各開�
 python3 tools/check_repository.py --history --identity
 ```
 
-履歴と公開対象の文書・素材・依存ライセンスを確認してから、GitHubアカウント `moooyooo` の公開先と公開範囲を決めます。初回にGitHubリポジトリを自動作成しません。将来の外部コントリビューター受け入れでは、作者をmoooyoooに偽装せず、作者情報の公開ルールとチェッカーを明示的に更新します。
+利用者から `moooyooo/moooyooo-linux-explorer` のPublic公開とIssue管理の指示を受けています。ライセンス選択とバイナリ配布の確認は残作業として管理し、今回の公開対象はコミットされたソース・仕様・検証コードです。将来の外部コントリビューター受け入れでは、作者をmoooyoooに偽装せず、作者情報の公開ルールとチェッカーを明示的に更新します。
 
 もし本物の認証情報を発見した場合は、公開を止め、値をログへ再表示せず、資格情報の失効・更新と履歴の是正を行います。単に最新ファイルから削除しただけで解決した扱いにはしません。
+
+## Public公開とIssueの初回登録
+
+通常のLinuxターミナルで、このリポジトリのディレクトリから実行します。GitHub CLIが未導入の場合だけ導入し、ブラウザーでmoooyoooのアカウントを使って認証します。パスワードやトークンをソース、コマンド引数、チャットへ貼り付けません。
+
+```sh
+sudo apt-get install gh
+gh auth login --hostname github.com --git-protocol https --web --scopes workflow
+python3 tools/publish_github.py
+```
+
+GitHub CLIの認証情報はCLI／OSの資格情報管理に委ねます。`GH_CONFIG_DIR`等の設定先をリポジトリ内にしないでください。すでに認証済みでワークフロー更新権限だけが不足する場合は、通常のターミナルで `gh auth refresh --hostname github.com --scopes workflow` を使用します。[認証](https://cli.github.com/manual/gh_auth_login)、[リポジトリ作成](https://cli.github.com/manual/gh_repo_create)、[Issue作成](https://cli.github.com/manual/gh_issue_create)
+
+公開スクリプトは、未コミット変更、作者情報、検査フック、全作業ファイル・index・過去の履歴、仕様、Pythonテスト、ビルド、CTestを確認してから通信します。認証ユーザーと公開先を固定し、既存のPrivateリポジトリや別のoriginは変更しません。mainだけを通常のpushで送り、履歴の書き換え・強制push・フック無効化は行いません。Gitの資格情報ヘルパーはpushコマンドにだけ指定します。
+
+Issueは [原稿](../TODO.md) の識別子で全状態を検索し、登録済みなら再作成せず、本文・ラベル・完了状態を維持します。接続エラーで途中終了した場合は、表示された公開状況を確認してから同じコマンドを再実行できます。成功時にリポジトリURL、Issue URL、GitHubと一致したmainのコミットを表示します。実行前や途中失敗時は公開完了と記録しません。
+
+GitHub Actionsの `Publication checks` は読み取り権限だけで公開内容とPythonの検証を実行します。checkoutは公式v4のコミット `11d5960a326750d5838078e36cf38b85af677262` に固定し、資格情報をGit設定へ残しません。初回push後にGitHub側で成功を確認します。C++向けCI、mainの保護、外部作者の受け入れはEXP-007で追跡します。

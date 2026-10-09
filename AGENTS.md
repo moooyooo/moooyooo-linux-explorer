@@ -10,6 +10,8 @@
 - コミット前にステージの差分を読み、 `python3 tools/check_repository.py --staged --identity` と該当する検証を実行する。新規クローンでは `python3 tools/setup_git.py` を実行する。
 - プッシュ前は `python3 tools/check_repository.py --history` も実行する。検出事項は修正してから進める。検査フックを無効化して通さない。内容・画像・メタデータの目視確認も必要。
 - GitHub公開は利用者の指示に従う。自動でremoteを作成しない。
+- このセッションでは `moooyooo/moooyooo-linux-explorer` のPublic作成・push・Issue管理が利用者から明示的に許可されている。実行済みかどうかは実際のGitHub状態を確認する。
+- 残作業は `TODO.md` とGitHub Issueで管理する。着手・完了時に状態、関連コミット、検証結果を更新し、登録用原稿で既存Issueの追記を上書きしない。
 - 設計・利用者向け説明は日本語。公開資料とサンプルの更新に合わせてスキーマと検証を保つ。
 - ビルドは `cmake --preset dev` / `cmake --build --preset dev`、検証は `ctest --preset dev`。生成物は隣接する `.build/moooyooo-linux-explorer/` に置き、ソースリポジトリ内に作らない。GUIの自動検証は架空の一時フォルダとoffscreenを使用する。
 - 仕様の曖昧さは既存の利用者指定と合理的な初期値で解決し、判断理由を記録する。無関係なファイル変更、実データ操作、不要な権限昇格を行わない。

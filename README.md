@@ -91,4 +91,8 @@ python3 tools/check_repository.py --worktree
 
 ## 公開について
 
-GitHubへのリポジトリ作成、remote登録、pushは未実施です。公開ライセンスの選択と依存ライブラリの配布条件確認は、公開工程で確定します。Microsoftのロゴ・アイコン・プログラム資産は使用しません。
+公開先は [moooyooo/moooyooo-linux-explorer](https://github.com/moooyooo/moooyooo-linux-explorer)（Public）です。[TODOとIssue管理](TODO.md)に残作業と登録用原稿をまとめています。不具合・機能要望のIssueテンプレート、公開内容・履歴・仕様・PythonテストのCIを用意しています。C++向けCIとブランチ保護は残作業です。
+
+初回公開は、GitHub CLIをmoooyoooで認証した通常のターミナルから `python3 tools/publish_github.py` を実行します。全履歴を再検査し、Publicリポジトリ作成、mainのpush、7件のIssue登録、リモートのコミット確認を行います。`--check-only` はローカル検査だけです。実際の公開状況はGitHubとコマンドの完了結果で確認してください。[詳しい手順](docs/08-publication.md)
+
+プロジェクトのライセンス選択とバイナリの配布条件確認は未完了です。現時点ではLICENSEを追加していません。Microsoftのロゴ・アイコン・プログラム資産は使用しません。

@@ -1,0 +1,32 @@
+name: Publication checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publication:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Inspect all public files and history
+        run: |
+          python3 tools/check_repository.py --worktree
+          python3 tools/check_repository.py --staged
+          python3 tools/check_repository.py --history
+      - name: Check design and publication tooling
+        run: |
+          python3 tools/check_spec.py
+          python3 -m unittest discover -s tests -v
