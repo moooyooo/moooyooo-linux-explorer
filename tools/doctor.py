@@ -11,7 +11,7 @@ def main():
         "Ninja": ["ninja", "--version"],
         "Qt Widgets": ["pkg-config", "--modversion", "Qt6Widgets"],
         "Qt Test": ["pkg-config", "--modversion", "Qt6Test"],
-        "GIO (M3)": ["pkg-config", "--modversion", "gio-2.0"],
+        "GIO": ["pkg-config", "--modversion", "gio-2.0"],
     }
     ok = True
     for label, command in checks.items():

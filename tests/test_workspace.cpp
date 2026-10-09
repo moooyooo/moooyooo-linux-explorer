@@ -2,7 +2,10 @@
 #include "persistence/project_store.h"
 #include "ui/folder_pane.h"
 #include "ui/main_window.h"
+#include "ui/file_clipboard.h"
+#include "application/operation_service.h"
 #include <QAction>
+#include <QAbstractButton>
 #include <QApplication>
 #include <QFile>
 #include <QJsonArray>
@@ -14,6 +17,13 @@
 #include <QTabBar>
 #include <QInputMethodEvent>
 #include <QHeaderView>
+#include <QClipboard>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QMenu>
+#include <QMimeData>
+#include <QStatusBar>
+#include <QLabel>
 #include <QTreeView>
 #include <QtTest>
 
@@ -21,6 +31,7 @@ using namespace mlex;
 class WorkspaceTest : public QObject {
     Q_OBJECT
     QTemporaryDir fixture_;
+    QTemporaryDir privateData_;
     void trigger(MainWindow &window, const char *name) {
         auto *action = window.findChild<QAction *>(name);
         QVERIFY(action);
@@ -31,6 +42,11 @@ class WorkspaceTest : public QObject {
 private slots:
     void initTestCase() {
         QVERIFY(fixture_.isValid());
+        QVERIFY(privateData_.isValid());
+        QVERIFY(QDir(privateData_.path()).mkdir("home"));
+        qputenv("HOME", privateData_.filePath("home").toUtf8());
+        qputenv("XDG_STATE_HOME", privateData_.filePath("state").toUtf8());
+        qputenv("XDG_DATA_HOME", privateData_.filePath("data").toUtf8());
         QDir root(fixture_.path());
         QVERIFY(root.mkpath("業務サンプル/資料"));
         QVERIFY(root.mkpath("業務サンプル/成果物"));
@@ -50,11 +66,12 @@ private slots:
         QTRY_COMPARE(window.mdiArea()->subWindowList().size(), 2);
         auto *second = window.activePane();
         QVERIFY(second != first);
-        QCOMPARE(second->path(), first->path());
+        QCOMPARE(second->path(), QDir::homePath());
+        QVERIFY(second->path() != first->path());
         second->navigate(fixture_.filePath("業務サンプル"));
         QCOMPARE(first->path(), fixture_.path());
         second->back();
-        QCOMPARE(second->path(), fixture_.path());
+        QCOMPARE(second->path(), QDir::homePath());
         second->forward();
         QCOMPARE(second->path(), fixture_.filePath("業務サンプル"));
         trigger(window, "pane.close");
@@ -208,6 +225,268 @@ private slots:
         QTRY_VERIFY(icons->model()->rowCount(icons->rootIndex()) > 0);
         icons->selectionModel()->select(icons->model()->index(0, 0, icons->rootIndex()), QItemSelectionModel::ClearAndSelect);
         QCOMPARE(pane->selectedPaths().size(), 1);
+    }
+    void perPaneStatusAndSafeTextCommands() {
+        MainWindow window(makeProject({fixture_.path(), fixture_.filePath("業務サンプル")}), {}, false);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const auto children = window.mdiArea()->subWindowList();
+        window.mdiArea()->setActiveSubWindow(children.first());
+        auto *pane = window.activePane();
+        auto *details = pane->findChild<QTreeView *>("details");
+        auto *summary = pane->findChild<QLabel *>("paneSummary");
+        QVERIFY(pane->findChild<QStatusBar *>("paneStatusBar"));
+        QTRY_VERIFY(summary->text().contains("6 項目"));
+        pane->selectPaths({fixture_.filePath("item2.txt")});
+        details->setFocus();
+        QTRY_VERIFY(summary->text().contains("1 件選択"));
+        QVERIFY(summary->text().contains("bytes") || summary->text().contains("B"));
+        auto *other = qobject_cast<FolderPane *>(children.last()->widget());
+        QTRY_VERIFY(other->findChild<QLabel *>("paneSummary")->text().contains("2 項目"));
+        QVERIFY(other->findChild<QLabel *>("paneSummary")->text().contains("0 件選択"));
+        auto *address = pane->findChild<QLineEdit *>("address");
+        address->setFocus();
+        address->setText("text editing");
+        address->selectAll();
+        for (const auto *name : {"file.rename", "file.copy", "file.cut", "file.paste", "file.trash", "file.delete", "file.undo", "file.redo"})
+            QVERIFY2(!window.findChild<QAction *>(name)->isEnabled(), name);
+        QTest::keyClick(address, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(QApplication::clipboard()->text(), QString("text editing"));
+        QTest::keyClick(address, Qt::Key_Delete);
+        QCOMPARE(address->text(), QString());
+        QTest::keyClick(address, Qt::Key_Z, Qt::ControlModifier);
+        QCOMPARE(address->text(), QString("text editing"));
+        QVERIFY(QFileInfo::exists(fixture_.filePath("item2.txt")));
+        QMenu popup(&window);
+        popup.popup(window.mapToGlobal(QPoint(20, 20)));
+        QApplication::processEvents();
+        QVERIFY(!pane->fileViewFocused());
+        popup.close();
+        details->setFocus();
+        QApplication::processEvents();
+        QVERIFY(window.findChild<QAction *>("file.rename")->isEnabled());
+        QInputMethodEvent composing("なまえ", {});
+        QApplication::sendEvent(details, &composing);
+        QVERIFY(!window.findChild<QAction *>("file.rename")->isEnabled());
+        QVERIFY(!window.findChild<QAction *>("file.trash")->isEnabled());
+        QInputMethodEvent commit;
+        QApplication::sendEvent(details, &commit);
+        pane->findChild<QLineEdit *>("search")->setText("item10");
+        QTRY_VERIFY(summary->text().contains("1 項目"));
+    }
+    void fileOperationKeyboardWorkflow() {
+        QTemporaryDir tmp;
+        QVERIFY(QDir(tmp.path()).mkdir("target"));
+        QFile file(tmp.filePath("example.txt"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("Synthetic keyboard fixture\n");
+        file.close();
+        MainWindow window(makeProject({tmp.path(), tmp.filePath("target")}), {}, false);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const auto children = window.mdiArea()->subWindowList();
+        window.mdiArea()->setActiveSubWindow(children.first());
+        auto *pane = window.activePane();
+        auto *details = pane->findChild<QTreeView *>("details");
+        QTRY_COMPARE(details->model()->rowCount(details->rootIndex()), 2);
+        pane->selectPaths({file.fileName()});
+        details->setFocus();
+        QSignalSpy finished(window.operations(), &OperationService::finished);
+        auto answerName = [&window](const QString &name, bool checkStem) {
+            QTimer::singleShot(0, &window, [name, checkStem] {
+                auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                const auto initiallySelected = dialog->findChild<QLineEdit *>()->selectedText();
+                dialog->setTextValue(name);
+                dialog->accept();
+                if (checkStem) QCOMPARE(initiallySelected, QString("example"));
+            });
+        };
+        answerName("renamed.txt", true);
+        QTest::keyClick(details, Qt::Key_F2);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 10000);
+        QVERIFY(QFileInfo::exists(tmp.filePath("renamed.txt")));
+        QTRY_COMPARE(pane->selectedPaths(), QStringList{tmp.filePath("renamed.txt")});
+        QVERIFY(window.operations()->canUndo());
+        // Offscreen has no window manager to reactivate the owner after a dialog.
+        window.activateWindow();
+        details->setFocus();
+        QTRY_COMPARE(QApplication::focusWidget(), static_cast<QWidget *>(details));
+        QVERIFY(window.findChild<QAction *>("file.undo")->isEnabled());
+        QTest::keyClick(details, Qt::Key_Z, Qt::ControlModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 2, 10000);
+        QVERIFY(QFileInfo::exists(file.fileName()));
+        QTest::keyClick(details, Qt::Key_Y, Qt::ControlModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 3, 10000);
+        QVERIFY(QFileInfo::exists(tmp.filePath("renamed.txt")));
+        answerName("new folder", false);
+        QTest::keyClick(details, Qt::Key_N, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 4, 10000);
+        QVERIFY(QFileInfo(tmp.filePath("new folder")).isDir());
+        QCOMPARE(window.mdiArea()->subWindowList().size(), 2);
+        window.activateWindow();
+        details->setFocus();
+        QTRY_VERIFY(details->hasFocus());
+        pane->selectPaths({tmp.filePath("renamed.txt")});
+        QTest::keyClick(details, Qt::Key_C, Qt::ControlModifier);
+        QVERIFY(!readFileTransfer(QApplication::clipboard()->mimeData()).cut);
+        window.mdiArea()->setActiveSubWindow(children.last());
+        auto *target = window.activePane();
+        auto *targetView = target->findChild<QTreeView *>("details");
+        targetView->setFocus();
+        QTest::keyClick(targetView, Qt::Key_V, Qt::ControlModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 5, 10000);
+        QVERIFY(QFileInfo::exists(tmp.filePath("target/renamed.txt")));
+        QTest::keyClick(targetView, Qt::Key_Z, Qt::ControlModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 6, 10000);
+        QVERIFY(!QFileInfo::exists(tmp.filePath("target/renamed.txt")));
+        window.mdiArea()->setActiveSubWindow(children.first());
+        details->setFocus();
+        pane->selectPaths({tmp.filePath("renamed.txt")});
+        QTest::keyClick(details, Qt::Key_X, Qt::ControlModifier);
+        QVERIFY(readFileTransfer(QApplication::clipboard()->mimeData()).cut);
+        QVERIFY(QFileInfo::exists(tmp.filePath("renamed.txt")));
+        window.mdiArea()->setActiveSubWindow(children.last());
+        targetView->setFocus();
+        QTest::keyClick(targetView, Qt::Key_V, Qt::ControlModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 7, 10000);
+        QVERIFY(!QFileInfo::exists(tmp.filePath("renamed.txt")));
+        QVERIFY(QFileInfo::exists(tmp.filePath("target/renamed.txt")));
+        QVERIFY(readFileTransfer(QApplication::clipboard()->mimeData()).items.isEmpty());
+        QTRY_COMPARE(target->selectedPaths(), QStringList{tmp.filePath("target/renamed.txt")});
+        auto deletionChoice = [&window](bool accept) {
+            QTimer::singleShot(0, &window, [accept] {
+                auto *dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                dialog->done(accept ? QMessageBox::Ok : QMessageBox::Cancel);
+            });
+        };
+        deletionChoice(false);
+        QTest::keyClick(targetView, Qt::Key_Delete, Qt::ShiftModifier);
+        QCOMPARE(finished.size(), 7);
+        QVERIFY(QFileInfo::exists(tmp.filePath("target/renamed.txt")));
+        window.activateWindow();
+        targetView->setFocus();
+        QTRY_VERIFY(targetView->hasFocus());
+        deletionChoice(true);
+        QTest::keyClick(targetView, Qt::Key_Delete);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 8, 10000);
+        QVERIFY(!QFileInfo::exists(tmp.filePath("target/renamed.txt")));
+        QVERIFY(QFileInfo::exists(privateData_.filePath("data/Trash/files/renamed.txt")));
+        QVERIFY(!window.operations()->canUndo());
+    }
+    void clipboardFormatsAndStaleCut() {
+        QTemporaryDir tmp;
+        QFile file(tmp.filePath("space ' 日本語.txt"));
+        QVERIFY(file.open(QIODevice::WriteOnly)); file.write("Synthetic clipboard data"); file.close();
+        auto mime = makeFileTransfer(captureItems({file.fileName()}), true);
+        const auto original = readFileTransfer(mime.get());
+        QVERIFY(original.error.isEmpty());
+        QVERIFY(original.cut);
+        QMimeData gnome;
+        gnome.setData("x-special/gnome-copied-files", mime->data("x-special/gnome-copied-files"));
+        QCOMPARE(readFileTransfer(&gnome).items.first().toObject().value("path").toString(), file.fileName());
+        QVERIFY(readFileTransfer(&gnome).cut);
+        QMimeData kde;
+        kde.setUrls(mime->urls());
+        kde.setData("application/x-kde-cutselection", "1");
+        QVERIFY(readFileTransfer(&kde).cut);
+        QMimeData localhost;
+        auto localUrl = QUrl::fromLocalFile(file.fileName());
+        localUrl.setHost("localhost");
+        localhost.setUrls({localUrl});
+        QVERIFY(readFileTransfer(&localhost).error.isEmpty());
+        for (const auto &uri : {"https://example.invalid/file", "file://example.invalid/file", "file:///tmp/example?query", "file:///tmp/example#fragment", "file://user@localhost/tmp/example"}) {
+            QMimeData invalid;
+            invalid.setUrls({QUrl(uri)});
+            QVERIFY(!readFileTransfer(&invalid).error.isEmpty());
+        }
+        QVERIFY(file.open(QIODevice::WriteOnly)); file.write("Changed after cut"); file.close();
+        const auto capturedAgain = readFileTransfer(mime.get());
+        QCOMPARE(capturedAgain.items, original.items);
+        QVERIFY(captureItems({file.fileName()}) != original.items);
+        QMimeData unknown;
+        unknown.setText(file.fileName());
+        QVERIFY(!readFileTransfer(&unknown).error.isEmpty());
+        QApplication::clipboard()->clear();
+    }
+    void treeTargetsAndOpenFolderRename() {
+        QTemporaryDir tmp;
+        QVERIFY(QDir(tmp.path()).mkpath("folder/sub"));
+        MainWindow window(makeProject({tmp.path(), tmp.filePath("folder/sub")}), {}, false);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const auto children = window.mdiArea()->subWindowList();
+        window.mdiArea()->setActiveSubWindow(children.first());
+        auto *pane = window.activePane();
+        auto *tree = pane->findChild<QTreeView *>("folderTree");
+        auto *proxy = static_cast<DirectoryProxy *>(tree->model());
+        auto *model = static_cast<QFileSystemModel *>(proxy->sourceModel());
+        auto index = [&] { return proxy->mapFromSource(model->index(tmp.filePath("folder"))); };
+        QTRY_VERIFY(index().isValid());
+        tree->setFocus();
+        tree->setCurrentIndex(index());
+        QCOMPARE(pane->path(), tmp.path());
+        QCOMPARE(pane->operationDirectory(), tmp.filePath("folder"));
+        QSignalSpy finished(window.operations(), &OperationService::finished);
+        QTimer::singleShot(0, &window, [] {
+            auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            dialog->setTextValue("created in tree");
+            dialog->accept();
+        });
+        QTest::keyClick(tree, Qt::Key_N, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(finished.size(), 1);
+        QVERIFY(QFileInfo(tmp.filePath("folder/created in tree")).isDir());
+        QVERIFY(!QFileInfo::exists(tmp.filePath("created in tree")));
+        window.activateWindow();
+        auto *details = pane->findChild<QTreeView *>("details");
+        details->setFocus();
+        QTRY_VERIFY(details->hasFocus());
+        pane->selectPaths({tmp.filePath("folder")});
+        QTRY_COMPARE(pane->selectedPaths().size(), 1);
+        QTimer::singleShot(0, &window, [] {
+            auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            dialog->setTextValue("renamed folder");
+            dialog->accept();
+        });
+        QTest::keyClick(details, Qt::Key_F2);
+        QTRY_COMPARE(finished.size(), 2);
+        QCOMPARE(qobject_cast<FolderPane *>(children.last()->widget())->path(), tmp.filePath("renamed folder/sub"));
+        window.activateWindow();
+        details->setFocus();
+        QTRY_VERIFY(details->hasFocus());
+        bool contextRenameEnabled = true;
+        QTimer::singleShot(0, &window, [&] {
+            if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget())) {
+                contextRenameEnabled = window.findChild<QAction *>("file.rename")->isEnabled();
+                menu->close();
+            }
+        });
+        // A right-click in empty space must not target the previous selection.
+        emit details->customContextMenuRequested(details->viewport()->rect().bottomRight() - QPoint(4, 4));
+        QVERIFY(pane->selectedPaths().isEmpty());
+        QVERIFY(!contextRenameEnabled);
+    }
+    void closeWaitsForRunningOperation() {
+        QTemporaryDir tmp;
+        MainWindow window(makeProject({tmp.path()}), {}, false);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QSignalSpy finished(window.operations(), &OperationService::finished);
+        QVERIFY(window.operations()->start(QJsonObject{{"kind", "mkdir"}, {"destination", tmp.path()}, {"name", "created before close"}}));
+        QTimer::singleShot(0, &window, [] {
+            auto *dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            for (auto *button : dialog->buttons()) if (button->text() == "完了したら終了") { button->click(); return; }
+            dialog->reject();
+            QFAIL("Missing wait-for-operation choice");
+        });
+        QVERIFY(!window.close());
+        QTRY_COMPARE(finished.size(), 1);
+        QTRY_VERIFY(!window.isVisible());
+        QVERIFY(QFileInfo(tmp.filePath("created before close")).isDir());
     }
     void twentyPanesAndSyntheticPreview() {
         QStringList directories;

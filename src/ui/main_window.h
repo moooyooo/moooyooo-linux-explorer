@@ -16,6 +16,8 @@ class FolderPane;
 class CommandRegistry;
 class ProjectStore;
 class RecoveryStore;
+class FileCommands;
+class OperationService;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -31,6 +33,8 @@ public:
     void arrange(const QString &mode);
     bool saveTo(const QString &path, QString *error);
     void offerRecovery();
+    void applyOperationResult(const QJsonObject &result);
+    OperationService *operations() const;
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
@@ -53,6 +57,7 @@ private:
     QMdiArea *mdi_;
     QFileSystemModel *model_;
     CommandRegistry *commands_;
+    FileCommands *fileCommands_ = nullptr;
     QMenu *windowMenu_;
     std::unique_ptr<ProjectStore> store_;
     std::unique_ptr<RecoveryStore> recovery_;
@@ -63,6 +68,7 @@ private:
     bool closing_ = false;
     bool initialized_ = false;
     bool initialShowScheduled_ = false;
+    bool closeWhenFinished_ = false;
     QString arrangement_ = "free";
     QStringList paneOrder_;
     QString recoveryError_;

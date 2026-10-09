@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QSortFilterProxyModel>
 #include <QWidget>
+#include <QTimer>
 
 class QLineEdit;
 class QTreeView;
@@ -12,6 +13,7 @@ class QStackedWidget;
 class QSplitter;
 class QLabel;
 class QToolButton;
+class QStatusBar;
 
 namespace mlex {
 class DirectoryProxy : public QSortFilterProxyModel {
@@ -36,10 +38,16 @@ class FolderPane : public QWidget {
     Q_OBJECT
 public:
     FolderPane(QFileSystemModel *model, const QJsonObject &state, QWidget *parent = nullptr);
+    ~FolderPane() override;
     QString id() const { return id_; }
     QString path() const { return path_; }
     QString title() const;
     QStringList selectedPaths() const;
+    QStringList operationPaths() const;
+    QString operationDirectory() const;
+    bool fileViewFocused() const;
+    void selectPaths(const QStringList &paths);
+    void showOperationStatus(const QString &message, int timeout = 0);
     QJsonObject state() const;
     void setFileSystemModel(QFileSystemModel *model);
     void navigate(const QString &path, bool history = true);
@@ -64,6 +72,7 @@ signals:
     void stateChanged();
     void selectionChanged();
     void refreshRequested();
+    void contextMenuRequested(const QPoint &position);
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
 private:
@@ -71,6 +80,7 @@ private:
     void updateRoots();
     void activate(const QModelIndex &index);
     void restoreSelection();
+    void updateStatus();
     QString id_;
     QString path_;
     QStringList history_;
@@ -91,5 +101,10 @@ private:
     QToolButton *forward_;
     QStringList pendingSelection_;
     bool applying_ = false;
+    bool treeFocused_ = false;
+    bool lastFileContext_ = false;
+    QStatusBar *status_;
+    QLabel *summary_;
+    QTimer statusUpdate_;
 };
 }

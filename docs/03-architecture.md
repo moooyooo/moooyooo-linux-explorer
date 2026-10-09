@@ -21,7 +21,7 @@ flowchart LR
 
 ## モジュールの責務
 
-以下は製品全体の設計です。閲覧版では `mlex_core`（domain / persistence / platform）と `mlex_ui`（MainWindow / FolderPane / CommandRegistry）を実装しています。保存検証はWidgetsに依存しません。WorkspaceController相当の画面調停は現段階ではMainWindowに置き、更新ジョブを追加するM3でapplication層へ分離します。OperationServiceとワーカーはまだ存在しません。
+以下は製品全体の設計です。現在は `mlex_core`（domain / application / persistence / platform）、`mlex_ui`（MainWindow / FolderPane / CommandRegistry / FileCommands）、`mlex_operations`（操作エンジン）を実装しています。`OperationService` はQt Coreのみでジョブ・IPC・Undo履歴・記録を管理し、`mlex-file-worker` が実更新を行います。画面調停はMainWindow、キー・ダイアログ・クリップボードはFileCommandsへ分離しています。保存検証と操作ワーカーはWidgetsに依存しません。
 
 | モジュール | 主な型・責務 | 依存の制約 |
 |---|---|---|
@@ -43,9 +43,9 @@ QActionを子ごとに無制限に複製せず、親のCommandRegistryがフォ�
 
 一覧の読み取りモデルではファイル更新を無効にします。drop、F2、Delete等はすべてOperationPlanを作り、OperationServiceへ渡します。QFileSystemModelのremove / rmdir / setDataによる実更新は使いません。
 
-ワーカーとの通信は継承した標準入出力パイプの長さ制限付きJSON Linesとします。job_id、protocol_version、request / progress / conflict / cancel / completedを定義し、stdoutにはプロトコルだけを出します。実パスはコマンドラインや通常ログへ書かず、必要なパイプ内で渡します。最大メッセージは1MiB、ファイル一覧は256件以下のバッチに分けます。受付上限を超えた要求は失敗として返し、命令文字列の評価は行いません。
+ワーカーとの通信は継承した標準入出力パイプの長さ制限付きJSON Linesです。job_id、protocol_version=1、request / progress / cancel / completedを実装し、stdoutにはプロトコルだけを出します。同名競合の方針は起動前のUIで選び、実行時の新たな競合は上書きせず失敗として返します。実パスはコマンドラインへ書かず、必要なパイプとアクセス制限した操作記録で扱います。最大メッセージは1MiB、操作元は256件・JSON 256KiB未満、要求全体は768KiB以下です。上限超過は分割して操作するよう説明します。命令文字列の評価は行いません。
 
-更新ジョブは親あたり同時2件まで、同じ場所に影響するジョブは直列化します。プロセス外の別アプリによる変更もあり得るため、この直列化だけを排他の根拠にしません。最終確定時に競合・同一性を再確認します。進捗は最大10回/秒でGUIへ通知します。
+現在の更新ジョブは親あたり1件ずつ直列実行します。将来拡張時も同時2件を上限とし、同じ場所に影響するジョブは直列化します。別の親・外部アプリとの排他にはならないため、確定時にも競合・同一性を再確認します。進捗は最大10回/秒でGUIへ通知します。ワーカーはイベントループで中断要求を受け、操作用スレッドへatomicフラグとGCancellableで通知します。親のパイプが閉じた場合も中断を要求します。
 
 GIOの単一ファイルコピーだけではフォルダの再帰コピーは完成しません。再帰列挙、競合方針、部分成功の記録はOperationServiceとワーカー側の計画に明示して実装します。[GIOのコピー仕様](https://docs.gtk.org/gio/method.File.copy.html)
 
@@ -70,4 +70,4 @@ tests/integration/    架空ツリーを使うファイル操作
 tests/gui/            キー・MDI・フォーカス
 ```
 
-これは拡張後の構成案です。現在は `src/domain/`、`src/ui/`、`src/platform/`、`src/persistence/` と `tests/test_project.cpp`、`tests/test_workspace.cpp`、`tests/check_cli.py` を使用します。モデルは親で共有し、F5ではモデルを再生成して全子へ接続し直します。子ごとの履歴・検索・表示設定と、パスによる選択を引き継ぎます。低速マウントでのモデル破棄・再生成の応答性は今後の評価対象です。
+これは拡張後の構成案です。現在は `src/domain/`、`src/application/`、`src/ui/`、`src/platform/`、`src/persistence/`、`src/workers/` と `tests/test_project.cpp`、`tests/test_workspace.cpp`、`tests/test_operations.cpp`、`tests/check_cli.py` を使用します。モデルは親で共有し、F5と更新操作後にモデルを再生成して全子へ接続し直します。履歴・検索・表示設定とパスによる選択を引き継ぎ、移動・名前変更されたフォルダを表示する子は新しい場所へ追従します。低速マウントでのモデル破棄・再生成の応答性は今後の評価対象です。

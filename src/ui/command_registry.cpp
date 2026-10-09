@@ -22,15 +22,20 @@ QAction *CommandRegistry::add(const QString &id, const QString &label, const QLi
     action->setShortcutContext(Qt::WindowShortcut);
     window_->addAction(action);
     connect(action, &QAction::triggered, this, [this, run = std::move(run)] { if (!composing_) run(); });
-    commands_.insert(id, {action, needsPane, outsideText});
+    commands_.insert(id, {action, needsPane, outsideText, {}});
     return action;
+}
+
+void CommandRegistry::setCondition(const QString &id, std::function<bool()> condition) {
+    Q_ASSERT(commands_.contains(id));
+    commands_[id].condition = std::move(condition);
 }
 
 void CommandRegistry::update() {
     auto *focus = QApplication::focusWidget();
     const bool text = qobject_cast<QLineEdit *>(focus) || qobject_cast<QTextEdit *>(focus) || qobject_cast<QPlainTextEdit *>(focus);
     for (const auto &command : commands_)
-        command.action->setEnabled(!composing_ && (!command.needsPane || hasPane_()) && (!command.outsideText || !text));
+        command.action->setEnabled(!composing_ && (!command.needsPane || hasPane_()) && (!command.outsideText || !text) && (!command.condition || command.condition()));
 }
 
 bool CommandRegistry::eventFilter(QObject *object, QEvent *event) {

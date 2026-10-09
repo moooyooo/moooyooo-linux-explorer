@@ -18,7 +18,7 @@ Options parse(int argc, char **argv) {
     QCoreApplication::setApplicationName("moooyooo-linux-explorer");
     QCoreApplication::setApplicationVersion(MLEX_VERSION);
     QCommandLineParser parser;
-    parser.setApplicationDescription("複数フォルダを業務ごとに保存できるLinux向けMDIファイラ（閲覧版）");
+    parser.setApplicationDescription("複数フォルダを業務ごとに保存できるLinux向けMDIファイラ");
     auto help = parser.addHelpOption();
     auto version = parser.addVersionOption();
     parser.addOption({"project", "保存済みのプロジェクトを開く", "file"});

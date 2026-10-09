@@ -1,6 +1,8 @@
 #include "main_window.h"
 #include "command_registry.h"
 #include "folder_pane.h"
+#include "file_commands.h"
+#include "application/operation_service.h"
 #include "domain/project.h"
 #include "persistence/project_store.h"
 #include "persistence/recovery_store.h"
@@ -20,6 +22,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProcess>
+#include <QPushButton>
 #include <QScreen>
 #include <QStatusBar>
 #include <QTabBar>
@@ -65,6 +68,10 @@ MainWindow::MainWindow(const QJsonObject &project, std::unique_ptr<ProjectStore>
     mdi_->setDocumentMode(true);
     mdi_->setOption(QMdiArea::DontMaximizeSubWindowOnActivation, true);
     setupCommands();
+    fileCommands_ = new FileCommands(this, commands_);
+    connect(operations(), &OperationService::finished, this, [this] {
+        if (closeWhenFinished_) { closeWhenFinished_ = false; QTimer::singleShot(0, this, &MainWindow::close); }
+    });
     connect(mdi_, &QMdiArea::subWindowActivated, this, [this] { markDirty(); updateUi(); });
     connect(&recoveryDebounce_, &QTimer::timeout, this, &MainWindow::writeRecovery);
     connect(&recoveryDeadline_, &QTimer::timeout, this, &MainWindow::writeRecovery);
@@ -90,6 +97,8 @@ MainWindow::~MainWindow() {
     for (auto *child : findChildren<QObject *>()) disconnect(child, nullptr, this, nullptr);
     delete commands_;
     commands_ = nullptr;
+    delete fileCommands_;
+    fileCommands_ = nullptr;
     delete takeCentralWidget();
     mdi_ = nullptr;
 }
@@ -97,6 +106,23 @@ MainWindow::~MainWindow() {
 FolderPane *MainWindow::activePane() const {
     auto *window = mdi_->activeSubWindow();
     return window ? qobject_cast<FolderPane *>(window->widget()) : nullptr;
+}
+
+OperationService *MainWindow::operations() const { return fileCommands_->operations(); }
+
+void MainWindow::applyOperationResult(const QJsonObject &result) {
+    for (const auto &value : result.value("successes").toArray()) {
+        const auto item = value.toObject();
+        if (item.value("kind") != "rename" && item.value("kind") != "move") continue;
+        const auto from = item.value("source").toString(), to = item.value("target").toString();
+        if (from.isEmpty() || to.isEmpty()) continue;
+        for (auto *sub : mdi_->subWindowList()) {
+            auto *pane = qobject_cast<FolderPane *>(sub->widget());
+            if (pane && (pane->path() == from || pane->path().startsWith(from + '/')))
+                pane->navigate(to + pane->path().mid(from.size()));
+        }
+    }
+    refreshFiles();
 }
 
 QMdiSubWindow *MainWindow::appendPane(const QJsonObject &state) {
@@ -112,8 +138,10 @@ QMdiSubWindow *MainWindow::appendPane(const QJsonObject &state) {
     connect(pane, &FolderPane::stateChanged, this, [this, sub, pane] { sub->setWindowTitle(pane->title()); markDirty(); updateUi(); });
     connect(pane, &FolderPane::selectionChanged, this, &MainWindow::updateUi);
     connect(pane, &FolderPane::refreshRequested, this, &MainWindow::refreshFiles);
+    connect(pane, &FolderPane::contextMenuRequested, fileCommands_, [this, pane](const QPoint &position) { fileCommands_->showContextMenu(pane, position); });
     connect(sub, &QObject::destroyed, this, [this] { if (!closing_) { markDirty(); updateUi(); } });
     sub->show();
+    pane->setFocus();
     const QRect geometry = restoreRect(state.value("rect").toObject(), mdi_->viewport()->size());
     sub->setGeometry(geometry);
     sub->setProperty("normalRect", sub->geometry());
@@ -149,10 +177,10 @@ void MainWindow::restore(const QJsonObject &project) {
 
 void MainWindow::addPane() {
     if (mdi_->subWindowList().size() >= 64) {
-        QMessageBox::information(this, "子ウィンドウ", "1つの業務ウィンドウに開けるフォルダは64個までです。");
+        QMessageBox::information(this, "内部ファイラ", "1つの業務ウィンドウに開ける内部ファイラは64個までです。");
         return;
     }
-    auto state = makePane(activePane() ? activePane()->path() : QDir::homePath());
+    auto state = makePane(QDir::homePath());
     if (activePane()) state["view"] = activePane()->state().value("view");
     const double offset = 0.025 * (mdi_->subWindowList().size() % 8);
     state["rect"] = QJsonObject{{"x", offset}, {"y", offset}, {"width", 0.72}, {"height", 0.78}};
@@ -291,8 +319,8 @@ void MainWindow::updateUi() {
         commands_->get("view.hidden")->setChecked(pane->hidden());
         commands_->get("view.tree")->setChecked(pane->treeVisible());
         commands_->get("view.icons")->setChecked(pane->icons());
-        statusBar()->showMessage(QString("%1 フォルダ  ·  %2 件選択  ·  閲覧版").arg(mdi_->subWindowList().size()).arg(pane->selectedPaths().size()));
-    } else statusBar()->showMessage("Ctrl+N でフォルダを開く  ·  閲覧版");
+        statusBar()->showMessage(QString("%1 内部ファイラ").arg(mdi_->subWindowList().size()));
+    } else statusBar()->showMessage("Ctrl+N で内部ファイラを追加");
     commands_->get("layout.tabs")->setChecked(mdi_->viewMode() == QMdiArea::TabbedView);
     if (!recoveryError_.isEmpty()) statusBar()->showMessage(recoveryError_);
 }
@@ -426,6 +454,20 @@ void MainWindow::showEvent(QShowEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    if (operations()->busy()) {
+        QMessageBox box(QMessageBox::Question, "ファイル操作中", "終了する前にファイル操作の完了を待ちます。", QMessageBox::NoButton, this);
+        auto *wait = box.addButton("完了したら終了", QMessageBox::AcceptRole);
+        auto *cancel = box.addButton("中断して終了", QMessageBox::DestructiveRole);
+        box.addButton("戻る", QMessageBox::RejectRole);
+        box.exec();
+        if (box.clickedButton() == wait || box.clickedButton() == cancel) {
+            closeWhenFinished_ = true;
+            if (box.clickedButton() == cancel) operations()->cancel();
+            if (!operations()->busy()) { closeWhenFinished_ = false; QTimer::singleShot(0, this, &MainWindow::close); }
+        }
+        event->ignore();
+        return;
+    }
     if (dirty_) {
         const auto choice = QMessageBox::question(this, "プロジェクトの変更", "変更したフォルダ構成・配置を保存しますか？", QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
         if (choice == QMessageBox::Cancel || (choice == QMessageBox::Save && !save(false))) { event->ignore(); return; }
@@ -458,15 +500,15 @@ void MainWindow::setupCommands() {
         for (const auto &key : keys) shortcuts.append(QKeySequence(key));
         return commands_->add(id, text, shortcuts, std::move(run), pane, outsideText);
     };
-    add("pane.new", "フォルダを追加(&N)", {"Ctrl+N", "Ctrl+T"}, [this] { addPane(); });
-    add("pane.close", "フォルダを閉じる(&W)", {"Ctrl+W", "Ctrl+F4"}, [this] { mdi_->activeSubWindow()->close(); }, true);
+    add("pane.new", "内部ファイラを追加(&N)", {"Ctrl+N", "Ctrl+T"}, [this] { addPane(); });
+    add("pane.close", "内部ファイラを閉じる(&W)", {"Ctrl+W", "Ctrl+F4"}, [this] { mdi_->activeSubWindow()->close(); }, true);
     auto cycle = [this](int direction) {
         const auto windows = orderedWindows();
         const int current = windows.indexOf(mdi_->activeSubWindow());
         mdi_->setActiveSubWindow(windows[(current + direction + windows.size()) % windows.size()]);
     };
-    add("pane.next", "次のフォルダ", {"Ctrl+Tab", "Ctrl+F6"}, [cycle] { cycle(1); }, true);
-    add("pane.previous", "前のフォルダ", {"Ctrl+Shift+Tab", "Ctrl+Shift+F6"}, [cycle] { cycle(-1); }, true);
+    add("pane.next", "次の内部ファイラ", {"Ctrl+Tab", "Ctrl+F6"}, [cycle] { cycle(1); }, true);
+    add("pane.previous", "前の内部ファイラ", {"Ctrl+Shift+Tab", "Ctrl+Shift+F6"}, [cycle] { cycle(-1); }, true);
     add("workspace.new", "新しい業務ウィンドウ", {"Ctrl+Alt+N"}, [this] { launchParent(); });
     add("workspace.close", "業務ウィンドウを閉じる", {"Alt+F4"}, [this] { close(); });
     add("project.open", "プロジェクトを開く(&O)…", {"Ctrl+O"}, [this] {
@@ -520,7 +562,7 @@ void MainWindow::setupCommands() {
     connect(windowMenu_, &QMenu::aboutToShow, this, &MainWindow::rebuildWindowMenu);
     auto *help = menuBar()->addMenu("ヘルプ(&H)");
     help->addAction("このアプリについて", this, [this] {
-        QMessageBox::about(this, "moooyooo Linux Explorer", "MDIフォルダ閲覧・プロジェクト保存の初期版です。\nCtrl+N: 子の追加\nCtrl+Alt+N: 新しい業務ウィンドウ\nCtrl+S: フォルダ構成を保存\n\nコピー・移動・削除・Undo・プレビューは今後の実装です。");
+        QMessageBox::about(this, "moooyooo Linux Explorer", "MDIファイラ・プロジェクト保存\nCtrl+N: 内部ファイラを追加（ホーム）\nCtrl+Alt+N: 新しい業務ウィンドウ\nCtrl+S: フォルダ構成を保存\n\nF2: 名前変更 / Ctrl+Shift+N: フォルダ作成\nCtrl+C・X・V: コピー・切り取り・貼り付け\nDelete: ごみ箱 / Shift+Delete: 完全削除\nCtrl+Z・Y: 取り消し・やり直し\n\nごみ箱・完全削除・異なるファイルシステムへの移動は取り消し対象外です。");
     });
 }
 }

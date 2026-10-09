@@ -40,7 +40,7 @@ sh tools/install_deps.sh
 python3 tools/doctor.py
 ```
 
-導入対象はbuild-essential、cmake、ninja-build、pkg-config、qt6-base-dev、qt6-base-dev-tools、qt6-wayland、libglib2.0-dev、xvfbです。GIOは後続のファイル操作用で、閲覧版のリンク依存には含めません。Qtが基準未満の場合は適合する開発イメージか公式Qt SDKを選び、手元のシステムQtを上書きしません。IDEは任意です。
+導入対象はbuild-essential、cmake、ninja-build、pkg-config、qt6-base-dev、qt6-base-dev-tools、qt6-wayland、libglib2.0-dev、xvfbです。GIOは操作ワーカーのごみ箱・キャンセル処理にリンクします。GUI実行ファイルと `mlex-file-worker` は同じbinディレクトリに配置します。Qtが基準未満の場合は適合する開発イメージか公式Qt SDKを選び、手元のシステムQtを上書きしません。IDEは任意です。
 
 CMake Presetsに `dev` / `release` / `asan` を定義しています。生成先はソースの隣の `.build/moooyooo-linux-explorer/<preset>/` です。開発ビルドは警告を有効にし、依存ライブラリの警告へ一律の `-Werror` は適用しません。依存取得をCMake構成時に自動実行せず、OSパッケージと明示したSDKを用います。リリースは動的リンクを基本とし、まず通常のLinuxパッケージ、後からAppImage等を評価します。Flatpakはアクセス権と業務フォルダ操作の整合を確認してから扱います。
 

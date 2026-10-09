@@ -15,6 +15,10 @@
 #include <QLineEdit>
 #include <QListView>
 #include <QMessageBox>
+#include <QMenu>
+#include <QStatusBar>
+#include <QKeyEvent>
+#include <limits>
 #include <QMimeDatabase>
 #include <QPointer>
 #include <QSplitter>
@@ -191,6 +195,45 @@ FolderPane::FolderPane(QFileSystemModel *model, const QJsonObject &state, QWidge
     splitter_->setStretchFactor(1, 1);
     splitter_->setChildrenCollapsible(false);
     layout->addWidget(splitter_, 1);
+    status_ = new QStatusBar(this);
+    status_->setObjectName("paneStatusBar");
+    status_->setSizeGripEnabled(false);
+    summary_ = new QLabel(status_);
+    summary_->setObjectName("paneSummary");
+    summary_->setTextFormat(Qt::PlainText);
+    summary_->setMinimumWidth(0);
+    summary_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    status_->addWidget(summary_, 1);
+    layout->addWidget(status_);
+    statusUpdate_.setSingleShot(true);
+    connect(&statusUpdate_, &QTimer::timeout, this, &FolderPane::updateStatus);
+    auto queueStatus = [this] { if (!statusUpdate_.isActive()) statusUpdate_.start(0); };
+    connect(this, &FolderPane::selectionChanged, this, queueStatus);
+    connect(listProxy_, &QAbstractItemModel::rowsInserted, this, queueStatus);
+    connect(listProxy_, &QAbstractItemModel::rowsRemoved, this, queueStatus);
+    connect(listProxy_, &QAbstractItemModel::layoutChanged, this, queueStatus);
+    connect(listProxy_, &QAbstractItemModel::modelReset, this, queueStatus);
+    connect(listProxy_, &QAbstractItemModel::dataChanged, this, queueStatus);
+    for (QAbstractItemView *view : {static_cast<QAbstractItemView *>(tree_), static_cast<QAbstractItemView *>(details_), static_cast<QAbstractItemView *>(icons_)}) {
+        view->installEventFilter(this);
+        view->viewport()->installEventFilter(this);
+        view->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(view, &QWidget::customContextMenuRequested, this, [this, view](const QPoint &position) {
+            view->setFocus();
+            const auto index = view->indexAt(position);
+            if (index.isValid() && !view->selectionModel()->isSelected(index))
+                view->selectionModel()->setCurrentIndex(index, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+            else if (!index.isValid()) view->selectionModel()->clearSelection();
+            emit contextMenuRequested(view->viewport()->mapToGlobal(position));
+        });
+    }
+    connect(tree_->selectionModel(), &QItemSelectionModel::selectionChanged, this, &FolderPane::selectionChanged);
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *focus) {
+        if (!focus || !isAncestorOf(focus)) return;
+        lastFileContext_ = focus == tree_ || tree_->isAncestorOf(focus) || focus == details_ || details_->isAncestorOf(focus) || focus == icons_ || icons_->isAncestorOf(focus);
+        if (lastFileContext_) treeFocused_ = focus == tree_ || tree_->isAncestorOf(focus);
+        emit selectionChanged();
+    });
     connect(back_, &QToolButton::clicked, this, &FolderPane::back);
     connect(forward_, &QToolButton::clicked, this, &FolderPane::forward);
     connect(parentButton, &QToolButton::clicked, this, &FolderPane::up);
@@ -218,6 +261,13 @@ FolderPane::FolderPane(QFileSystemModel *model, const QJsonObject &state, QWidge
 }
 
 QString FolderPane::title() const { const QString name = QFileInfo(path_).fileName(); return name.isEmpty() ? path_ : name; }
+
+FolderPane::~FolderPane() {
+    statusUpdate_.stop();
+    disconnect(qApp, nullptr, this, nullptr);
+    if (model_) disconnect(model_, nullptr, this, nullptr);
+    for (auto *child : findChildren<QObject *>()) disconnect(child, nullptr, this, nullptr);
+}
 
 void FolderPane::setFileSystemModel(QFileSystemModel *model) {
     if (model_) {
@@ -281,6 +331,7 @@ void FolderPane::updateRoots() {
     const auto index = listProxy_->mapFromSource(source);
     details_->setRootIndex(index);
     icons_->setRootIndex(index);
+    if (!statusUpdate_.isActive()) statusUpdate_.start(0);
 }
 
 void FolderPane::back() { if (historyIndex_ > 0) navigate(history_[--historyIndex_], false); }
@@ -316,7 +367,7 @@ void FolderPane::focusNextRegion(bool backwards) {
     regions[(index + (backwards ? regions.size() - 1 : 1)) % regions.size()]->setFocus();
 }
 
-void FolderPane::selectAll() { static_cast<QAbstractItemView *>(views_->currentWidget())->selectAll(); }
+void FolderPane::selectAll() { if (!treeFocused_) static_cast<QAbstractItemView *>(views_->currentWidget())->selectAll(); }
 void FolderPane::setViewMode(const QString &mode) { view_["mode"] = mode; applyView(); emit stateChanged(); }
 void FolderPane::setHidden(bool show) { view_["show_hidden"] = show; updateRoots(); emit stateChanged(); }
 void FolderPane::setTreeVisible(bool show) { view_["tree_visible"] = show; tree_->setVisible(show); emit stateChanged(); }
@@ -324,6 +375,7 @@ void FolderPane::setTreeVisible(bool show) { view_["tree_visible"] = show; tree_
 void FolderPane::applyView() {
     applying_ = true;
     views_->setCurrentWidget(icons() ? static_cast<QWidget *>(icons_) : details_);
+    setFocusProxy(views_->currentWidget());
     const int size = view_.value("icon_size").toInt();
     icons_->setIconSize(QSize(size, size));
     icons_->setGridSize(QSize(qMax(100, size + 36), size + 48));
@@ -369,6 +421,53 @@ QStringList FolderPane::selectedPaths() const {
     return paths;
 }
 
+QStringList FolderPane::operationPaths() const {
+    if (!treeFocused_) return selectedPaths();
+    const auto index = tree_->currentIndex();
+    return index.isValid() && tree_->selectionModel()->isSelected(index) ? QStringList{model_->filePath(treeProxy_->mapToSource(index))} : QStringList{};
+}
+
+QString FolderPane::operationDirectory() const {
+    if (!treeFocused_) return path_;
+    const auto paths = operationPaths();
+    return paths.isEmpty() ? QString() : paths.first();
+}
+
+bool FolderPane::fileViewFocused() const {
+    const QWidget *focus = QApplication::focusWidget();
+    if (qobject_cast<const QMenu *>(focus) || qobject_cast<QMenu *>(QApplication::activePopupWidget())) return lastFileContext_;
+    return focus && (focus == tree_ || tree_->isAncestorOf(focus) || focus == details_ || details_->isAncestorOf(focus) ||
+                     focus == icons_ || icons_->isAncestorOf(focus));
+}
+
+void FolderPane::selectPaths(const QStringList &paths) {
+    pendingSelection_ = paths;
+    details_->selectionModel()->clear();
+    restoreSelection();
+    if (selectedPaths().size() != paths.size()) pendingSelection_ = paths;
+}
+
+void FolderPane::showOperationStatus(const QString &message, int timeout) { status_->showMessage(message, timeout); }
+
+void FolderPane::updateStatus() {
+    const int count = views_->isHidden() ? 0 : listProxy_->rowCount(details_->rootIndex());
+    const auto selected = details_->selectionModel()->selectedIndexes();
+    qsizetype selectionCount = 0;
+    qint64 bytes = 0;
+    bool hasFile = false;
+    for (const auto &index : selected) {
+        if (index.column() != 0) continue;
+        ++selectionCount;
+        const auto source = listProxy_->mapToSource(index);
+        if (!model_->isDir(source)) { bytes += qMin(std::numeric_limits<qint64>::max() - bytes, qMax(qint64(0), model_->size(source))); hasFile = true; }
+    }
+    QString text = QString("%L1 項目  ·  %L2 件選択").arg(count).arg(selectionCount);
+    if (hasFile) text += "  ·  " + QLocale().formattedDataSize(bytes);
+    if (views_->isHidden()) text = "フォルダを読み取れません";
+    summary_->setText(text);
+    summary_->setToolTip(text + "\n" + path_);
+}
+
 void FolderPane::openCurrent() { activate(static_cast<QAbstractItemView *>(views_->currentWidget())->currentIndex()); }
 void FolderPane::activate(const QModelIndex &index) {
     if (!index.isValid()) return;
@@ -387,7 +486,7 @@ void FolderPane::activate(const QModelIndex &index) {
 }
 
 void FolderPane::showProperties() {
-    const auto paths = selectedPaths();
+    const auto paths = operationPaths();
     const QFileInfo info(paths.isEmpty() ? path_ : paths.first());
     QMessageBox box(QMessageBox::Information, "プロパティ", {}, QMessageBox::Ok, this);
     box.setTextFormat(Qt::PlainText);
@@ -398,6 +497,20 @@ void FolderPane::showProperties() {
 }
 
 bool FolderPane::eventFilter(QObject *object, QEvent *event) {
+    if (event->type() == QEvent::FocusIn) {
+        treeFocused_ = object == tree_ || object == tree_->viewport();
+        lastFileContext_ = true;
+        emit selectionChanged();
+    }
+    if (event->type() == QEvent::KeyPress) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Menu || (key->key() == Qt::Key_F10 && key->modifiers() == Qt::ShiftModifier)) {
+            auto *view = treeFocused_ ? static_cast<QAbstractItemView *>(tree_) : icons() ? static_cast<QAbstractItemView *>(icons_) : details_;
+            const auto rect = view->visualRect(view->currentIndex());
+            emit contextMenuRequested(view->viewport()->mapToGlobal(rect.isValid() ? rect.center() : QPoint(20, 20)));
+            return true;
+        }
+    }
     if ((object == icons_->viewport() || object == details_->viewport()) && event->type() == QEvent::Wheel) {
         const auto *wheel = static_cast<QWheelEvent *>(event);
         if (wheel->modifiers() == Qt::ControlModifier) {
