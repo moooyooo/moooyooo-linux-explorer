@@ -1,0 +1,79 @@
+{
+  "format": "moooyooo-linux-explorer-project",
+  "schema_version": 1,
+  "project_id": "00000000-0000-4000-8000-000000000001",
+  "revision": 1,
+  "name": "サンプル業務A",
+  "window": {
+    "width": 1280,
+    "height": 800,
+    "maximized": false
+  },
+  "layout": {
+    "mode": "mdi",
+    "arrangement": "tile_vertical"
+  },
+  "panes": [
+    {
+      "pane_id": "00000000-0000-4000-8000-000000000011",
+      "location": {
+        "kind": "home_relative",
+        "path": "Documents/sample-work/materials"
+      },
+      "view": {
+        "mode": "details",
+        "sort_by": "name",
+        "sort_order": "asc",
+        "directories_first": true,
+        "show_hidden": false,
+        "columns": [
+          "name",
+          "size",
+          "type",
+          "modified"
+        ],
+        "icon_size": 32,
+        "tree_visible": true,
+        "tree_width": 180
+      },
+      "rect": {
+        "x": 0.0,
+        "y": 0,
+        "width": 0.5,
+        "height": 1
+      },
+      "window_state": "normal"
+    },
+    {
+      "pane_id": "00000000-0000-4000-8000-000000000012",
+      "location": {
+        "kind": "home_relative",
+        "path": "Documents/sample-work/output"
+      },
+      "view": {
+        "mode": "details",
+        "sort_by": "name",
+        "sort_order": "asc",
+        "directories_first": true,
+        "show_hidden": false,
+        "columns": [
+          "name",
+          "size",
+          "type",
+          "modified"
+        ],
+        "icon_size": 32,
+        "tree_visible": true,
+        "tree_width": 180
+      },
+      "rect": {
+        "x": 0.5,
+        "y": 0,
+        "width": 0.5,
+        "height": 1
+      },
+      "window_state": "normal"
+    }
+  ],
+  "active_pane_id": "00000000-0000-4000-8000-000000000011"
+}

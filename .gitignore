@@ -1,0 +1,34 @@
+# Build products and editor state
+/build/
+/out/
+/dist/
+/install/
+/CMakeUserPresets.json
+/compile_commands.json
+/.cache/
+/.idea/
+/.vscode/
+*.user
+*.swp
+*~
+__pycache__/
+*.py[cod]
+
+# Real runtime data must live outside this repository, even when ignored.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+*.db
+*.sqlite*
+*.log
+*.mlex-project.json
+/runtime/
+/local-data/
+/captures/
+/secrets/
+
+# Public fixtures use sample-project.json, not the runtime file extension.

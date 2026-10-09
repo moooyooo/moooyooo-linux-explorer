@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "moooyooo Linux Explorer project v1",
+  "description": "Local project state. Real instances belong outside source repositories.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "moooyooo-linux-explorer-project"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "project_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "window": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 640,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 480,
+          "maximum": 16384
+        },
+        "maximized": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "maximized"
+      ],
+      "additionalProperties": false
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "mdi",
+            "tabs"
+          ]
+        },
+        "arrangement": {
+          "enum": [
+            "free",
+            "tile_vertical",
+            "tile_horizontal",
+            "tile_grid"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "arrangement"
+      ],
+      "additionalProperties": false
+    },
+    "panes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pane"
+      },
+      "minItems": 0,
+      "maxItems": 64
+    },
+    "active_pane_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "format",
+    "schema_version",
+    "project_id",
+    "revision",
+    "name",
+    "window",
+    "layout",
+    "panes",
+    "active_pane_id"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "location": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "home_relative",
+            "absolute"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "rect": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "view": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "details",
+            "icons"
+          ]
+        },
+        "sort_by": {
+          "enum": [
+            "name",
+            "size",
+            "type",
+            "modified"
+          ]
+        },
+        "sort_order": {
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        },
+        "directories_first": {
+          "type": "boolean"
+        },
+        "show_hidden": {
+          "type": "boolean"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "name",
+              "size",
+              "type",
+              "modified"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "icon_size": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 128
+        },
+        "tree_visible": {
+          "type": "boolean"
+        },
+        "tree_width": {
+          "type": "integer",
+          "minimum": 120,
+          "maximum": 600
+        }
+      },
+      "required": [
+        "mode",
+        "sort_by",
+        "sort_order",
+        "directories_first",
+        "show_hidden",
+        "columns",
+        "icon_size",
+        "tree_visible",
+        "tree_width"
+      ],
+      "additionalProperties": false
+    },
+    "pane": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "view": {
+          "$ref": "#/$defs/view"
+        },
+        "rect": {
+          "$ref": "#/$defs/rect"
+        },
+        "window_state": {
+          "enum": [
+            "normal",
+            "minimized",
+            "maximized"
+          ]
+        }
+      },
+      "required": [
+        "pane_id",
+        "location",
+        "view",
+        "rect",
+        "window_state"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
